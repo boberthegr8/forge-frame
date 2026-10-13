@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Forge Frame</title>
+<meta name="theme-color" content="#0f0f0f" />
+<style>
+  :root{--bg:#0f0f0f;--panel:#151515;--border:#2a2a2a;--text:#f4f4f4;--muted:#9aa0a6;--accent:#ff7716}
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:Inter,"Segoe UI",system-ui,-apple-system,sans-serif}
+  .app{display:grid;grid-template-columns:270px minmax(0,1fr);min-height:100vh}
+  .sidebar{border-right:1px solid var(--border);background:#111;padding:20px 16px;display:flex;flex-direction:column;gap:18px}
+  .brand{display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit;padding:2px 6px 12px}
+  .brandmark{width:42px;height:42px;border-radius:12px;background:var(--accent);color:#111;display:grid;place-items:center;font-weight:1000;font-size:18px}
+  .brand h1{font-size:19px;line-height:1;margin:0;font-weight:950;letter-spacing:-.02em}
+  .brand small{display:block;color:var(--muted);margin-top:5px;font-size:9px;text-transform:uppercase;letter-spacing:.2em;font-weight:900}
+  .navlabel{padding:0 10px;color:var(--muted);font-size:9px;font-weight:950;text-transform:uppercase;letter-spacing:.18em}
+  .nav{display:grid;gap:4px}
+  .nav a,.nav .active{display:flex;align-items:center;gap:11px;text-decoration:none;color:#c9cdd1;padding:10px 11px;border:1px solid transparent;border-radius:10px;font-size:13px;font-weight:750}
+  .nav a:hover{background:#191919;border-color:#242424;color:#fff}
+  .nav .active{background:#1a1a1a;border-color:#2d2d2d;color:#fff;box-shadow:inset 3px 0 0 var(--accent)}
+  .navicon{width:28px;height:28px;border-radius:8px;border:1px solid #303030;background:#181818;display:grid;place-items:center;color:var(--muted);font-size:9px;font-weight:1000}
+  .active .navicon{color:#111;background:var(--accent);border-color:var(--accent)}
+  .main{display:flex;align-items:center;justify-content:center;padding:40px}
+  .card{max-width:560px;border:1px solid var(--border);background:var(--panel);border-radius:16px;padding:28px}
+  .card h2{margin:0 0 8px;font-size:22px}
+  .card p{color:var(--muted);font-size:13px;line-height:1.6}
+  .card code{background:#101010;border:1px solid #2a2a2a;border-radius:6px;padding:2px 6px;font-size:12px}
+  @media(max-width:860px){.app{grid-template-columns:1fr}.sidebar{display:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <a href="https://app.forgehub.dev/" aria-label="Back to Forge Home" title="Back to Forge Home" class="brand">
+      <div class="brandmark">F</div>
+      <div><h1>FORGE</h1><small>Frame</small></div>
+    </a>
+    <div class="navlabel">Forge Suite</div>
+    <nav class="nav">
+      <a href="https://app.forgehub.dev"><span class="navicon">HM</span>Home</a>
+      <a href="https://crm.forgehub.dev"><span class="navicon">CR</span>CRM</a>
+      <a href="https://reader.forgehub.dev"><span class="navicon">RD</span>Reader</a>
+      <a href="https://scope.forgehub.dev"><span class="navicon">SC</span>Scope</a>
+      <a href="https://quote.forgehub.dev"><span class="navicon">QT</span>Quote / AI Quoter</a>
+      <a href="https://manufacturing.forgehub.dev"><span class="navicon">MF</span>Manufacturing</a>
+      <a href="https://portal.forgehub.dev"><span class="navicon">PT</span>Portal</a>
+      <div class="active"><span class="navicon">FR</span>Frame · 3D Takeoff</div>
+    </nav>
+  </aside>
+  <main class="main">
+    <div class="card">
+      <h2>Forge Frame — placeholder</h2>
+      <p>
+        This is a scaffold, not the real app. The actual <code>forge-frame-young.html</code>
+        (the 3D takeoff / BOM estimator) wasn't found on this device during
+        prep, so this placeholder stands in for it. The suite nav above, the
+        <code>/api/ai</code> endpoint, <code>vercel.json</code>, and the rest
+        of this project are ready — see <code>README.md</code> and
+        <code>FINALIZE.md</code> for what's left.
+      </p>
+      <p>
+        Drop the real file in as <code>index.html</code> (keeping it a single
+        file) and the deploy steps in <code>FINALIZE.md</code> will work as-is.
+      </p>
+    </div>
+  </main>
+</div>
+</body>
+</html>
