@@ -53,6 +53,8 @@ header{grid-column:1/-1;display:flex;align-items:center;gap:14px;padding:10px 16
 .job{margin-left:auto;text-align:right}
 .job b{display:block;font-size:13px}
 .job span{font-size:11px;color:var(--muted)}
+.plans{display:flex;align-items:center;gap:8px}
+.plans select{background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12px;font-weight:600;max-width:200px}
 .stage{position:relative;min-height:0;background:var(--scene)}
 #cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
 .toolbar{position:absolute;left:12px;top:12px;display:flex;flex-wrap:wrap;gap:6px;max-width:calc(100% - 24px)}
@@ -166,7 +168,8 @@ textarea{width:100%;min-height:130px;background:var(--raised);border:1px solid v
       <div class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.4" stroke-linejoin="round"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg></div>
       <div><div class="bname">FORGE</div><div class="bsub">Frame · 3D takeoff check</div></div>
     </a>
-    <div class="job"><b>Young Residence</b><span>Robinson Road, Brantford · Wayne Young BLCA</span></div>
+    <div class="job" id="jobInfo"><b id="jobName">Young Residence</b><span id="jobSite">Robinson Road, Brantford · Wayne Young BLCA</span></div>
+    <div class="plans"><select id="planSel" aria-label="Switch plan"></select><button class="btn" id="newPlanBtn" title="Start a new plan">+ New</button></div>
   </header>
 
   <main class="stage" id="stage">
@@ -293,18 +296,38 @@ const FRAMED = w => !!TYPES[w.type].stud;
 const EXT_TYPES = ['ext','gar'];
 const SUN = ['E4','E5','E6'];
 const LVNAME = {L:'Lower level', M:'Main floor'};
-const KEY = 'forge-frame-young-v3', PKEY = 'forge-frame-prices-v1', OKEY='forge-frame-ui-v1';
+const LEGACY_KEY = 'forge-frame-young-v3', PKEY = 'forge-frame-prices-v1', OKEY='forge-frame-ui-v1';
+const PLANS_KEY = 'forge-frame-plans-v1', ACTIVE_KEY = 'forge-frame-active-v1';
 const clone = o => JSON.parse(JSON.stringify(o));
+const SEED_ID = 'young-residence';
 const SEED = {walls:DATA.walls, rooms:DATA.rooms, doors:DATA.doors, opts:{finBase:false, finGar:false, insSun:false}};
+function loadK(k,d){ try{ const s=localStorage.getItem(k); if(s) return JSON.parse(s); }catch(e){} return d; }
+function saveK(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+function planDataKey(id){ return 'forge-frame-data-'+id; }
+function loadPlans(){
+  let list = loadK(PLANS_KEY, null);
+  if(!list){
+    const legacy = loadK(LEGACY_KEY, null);
+    saveK(planDataKey(SEED_ID), legacy || clone(SEED));
+    list = [{id:SEED_ID, name:'Young Residence', site:'Robinson Road, Brantford, ON', customer:'Wayne Young BLCA', rep:'Rob Flagg', seed:true}];
+    saveK(PLANS_KEY, list);
+    saveK(ACTIVE_KEY, SEED_ID);
+  }
+  return list;
+}
+let plans = loadPlans();
+let activeId = loadK(ACTIVE_KEY, null);
+if(!activeId || !plans.some(p=>p.id===activeId)) activeId = plans[0].id;
+const activePlan = () => plans.find(p=>p.id===activeId) || plans[0];
+const isSeedPlan = () => activeId === SEED_ID;
+function loadActiveData(){ return loadK(planDataKey(activeId), null) || {walls:[], rooms:[], doors:[], opts:{finBase:false, finGar:false, insSun:false}}; }
+function jobInfo(){ const p=activePlan(); return {job:p.name, site:p.site||'', customer:p.customer||'', rep:p.rep||'Rob Flagg'}; }
 
-let S = load(); let walls=S.walls, rooms=S.rooms, doors=S.doors, opts=S.opts;
+let S = loadActiveData(); let walls=S.walls, rooms=S.rooms, doors=S.doors, opts=S.opts;
 let prices = loadK(PKEY, {}); let ui = loadK(OKEY, {trim:'better', door:'better', gm:25});
 let selId=null, selRoom=null, selDoor=null, hi=new Set(), hiRow=-1, level='A';
 const $ = s => document.querySelector(s);
-function loadK(k,d){ try{ const s=localStorage.getItem(k); if(s) return JSON.parse(s); }catch(e){} return d; }
-function saveK(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
-function load(){ return loadK(KEY, null) || clone(SEED); }
-function save(){ saveK(KEY, {walls,rooms,doors,opts}); }
+function save(){ saveK(planDataKey(activeId), {walls,rooms,doors,opts}); }
 const len = w => Math.hypot(w.b[0]-w.a[0], w.b[1]-w.a[1]);
 const fmtFt = f => { const t=Math.round(f*12); return `${Math.floor(t/12)}'-${t%12}"`; };
 const esc = s => String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -383,7 +406,7 @@ function spans(w){ const L=len(w), ops=[...w.ops].sort((a,b)=>a.at-b.at), out=[]
 const wallBase = w => w.base + (w.level==='M' ? lift() : 0);
 const thick = w => TYPES[w.type].t || THICK[TYPES[w.type].stud];
 function rebuild(){ if(!scene) return; buildWalls(); buildFloor(); buildRooms(); placePlans(); }
-function placePlans(){ planL.position.y=-0.02; planM.position.y=E.MAIN+lift()+0.01; planL.visible=showPlan&&(level==='L'||level==='A'); planM.visible=showPlan&&level==='M'; }
+function placePlans(){ planL.position.y=-0.02; planM.position.y=E.MAIN+lift()+0.01; planL.visible=showPlan&&isSeedPlan()&&(level==='L'||level==='A'); planM.visible=showPlan&&isSeedPlan()&&level==='M'; }
 function buildWalls(){
   if(!scene) return; clearGroup(wallGroup);
   walls.forEach(w=>{
@@ -422,7 +445,7 @@ function buildStuds(w,g,t,sel){
 }
 function inHole(x,z){ return DATA.holes.some(h=>x>h.x0&&x<h.x1&&z>h.z0&&z<h.z1); }
 function buildFloor(){
-  if(!scene) return; clearGroup(floorGroup); if(!showFloor) return;
+  if(!scene) return; clearGroup(floorGroup); if(!showFloor) return; if(!isSeedPlan()) return;
   const y0=E.LOW_TOP+lift()/2, jd=9.5/12, jw=2.5/12;
   const zh = hi.has('FLOOR');
   DATA.zones.forEach(z=>{
@@ -726,6 +749,7 @@ function bomData(tierT, tierD){
   const conc=walls.filter(w=>w.type==='conc'), sill=conc.reduce((s,w)=>s+len(w),0), concIds=conc.map(w=>w.id);
   const walk=L.filter(w=>w.type==='ext'), walkLF=walk.reduce((s,w)=>s+len(w),0), rim=sill+walkLF;
   const F=['FLOOR'];
+  if(isSeedPlan()){
   sec('Floor system (engineered, supplier to confirm)', [
     ...Object.entries(joists).sort((a,b)=>b[0]-a[0]).map(([ln,n])=>({item:`9-1/2" engineered floor joist, ${ln}'`, qty:n, usage:'16" o.c., glued and screwed', src:F})),
     {item:'9-1/2" rim board 16\'', qty:Math.ceil(rim*1.05/16), usage:`${Math.round(rim)} LF perimeter`, src:[...F,...concIds]},
@@ -735,11 +759,14 @@ function bomData(tierT, tierD){
     {item:'Flush LVL in floor at walkout', qty:'—', usage:'2 runs, by supplier', src:F},
     {item:'3" adjustable steel post', qty:2, usage:'basement beam', src:F},
   ].map(r=>({...r, area:'Floor'})));
+  }
   sec('Foundation interface', [{item:'2x6 SPF 16\' sill plate (no PT)', qty:Math.ceil(sill*1.05/16), usage:`${Math.round(sill)} LF on excavated foundation`, src:concIds, area:'Lower'}]);
   sec('Main floor framing', wallRows(Mw,'Main'));
+  if(isSeedPlan()){
   sec('Posts and beams', [
     {item:'6x6 PT post', qty:5, usage:'2 lower patio, 3 rear deck', src:F, area:'Site'},
     {item:'2x10 PT 16\' (3-ply beams)', qty:9, usage:'lower patio and deck beams, 3 plies', src:F, area:'Site'}]);
+  }
   sec('Sheathing and wrap', [
     {item:'7/16" OSB 4×9 wall sheathing', qty:Math.ceil(extArea/36*1.05), usage:`${Math.round(extArea)} sq ft net, both levels`, src:extIds, area:'Whole house'},
     {item:'House wrap 9\'×150\'', qty:Math.ceil(extArea*1.1/1350), usage:`${Math.round(extArea)} sq ft + 10% laps`, src:extIds, area:'Whole house'}]);
@@ -888,7 +915,6 @@ function renderQuote(){
 $('#gm').value=ui.gm; $('#gm').onchange=e=>{ ui.gm=parseFloat(e.target.value)||0; saveK(OKEY,ui); renderQuote(); };
 
 /* ---------- Files ---------- */
-const JOB={customer:'Wayne Young BLCA', job:'Young Residence', site:'Robinson Road, Brantford, ON', rep:'Rob Flagg'};
 let dlP=null; const getDl=()=> dlP || (dlP = (window.claude&&claude.use) ? claude.use('downloads') : Promise.resolve(null));
 async function saveFile(filename, data){
   const dl=await getDl().catch(()=>null);
@@ -900,10 +926,10 @@ function letterhead(doc, title){
   doc.setFillColor(200,16,46); doc.rect(0,0,W,78,'F');
   doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(20); doc.text('J&K Home Building Centre',36,36);
   doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.text('Home Hardware Building Centre  |  Store 1891-4',36,54);
-  doc.text('116 King George Rd, Brantford, ON',W-36,30,{align:'right'}); doc.text('519-753-3114 ext. 112',W-36,44,{align:'right'}); doc.text('Sales: '+JOB.rep,W-36,58,{align:'right'});
+  doc.text('116 King George Rd, Brantford, ON',W-36,30,{align:'right'}); doc.text('519-753-3114 ext. 112',W-36,44,{align:'right'}); doc.text('Sales: '+jobInfo().rep,W-36,58,{align:'right'});
   doc.setTextColor(20,22,26); doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.text(title,36,108);
   doc.setFont('helvetica','normal'); doc.setFontSize(9.5);
-  doc.text(`Customer: ${JOB.customer}`,36,126); doc.text(`Job: ${JOB.job}, ${JOB.site}`,36,140);
+  doc.text(`Customer: ${jobInfo().customer}`,36,126); doc.text(`Job: ${jobInfo().job}, ${jobInfo().site}`,36,140);
   doc.text(`Date: ${new Date().toLocaleDateString('en-CA',{year:'numeric',month:'long',day:'numeric'})}`,W-36,126,{align:'right'});
   return 156;
 }
@@ -946,6 +972,7 @@ function modelSummary(){
 function aiBusy(on, msg){ $('#aiRun').disabled=on; $('#aiFileLbl').style.pointerEvents=on?'none':''; if(on) $('#aiOut').innerHTML=`<p class="sub"><span class="spin"></span>${msg}</p>`; }
 function aiErr(e){ const c=e&&e.code; $('#aiOut').innerHTML=`<p class="sub">${c==='not_granted'?'AI review needs permission. Allow it from the artifact\'s permissions menu.':c==='rate_limited'?'Too many requests just now. Wait a minute and try again.':'The review didn\'t finish. Try again.'}</p>`; }
 async function aiReview(){
+  if(!isSeedPlan()){ toast('AI photo review only works on the original Young Residence trace.'); return; }
   const s=await getSample().catch(()=>null); if(!s) return;
   aiBusy(true,'Reviewing both plan sheets against the model…');
   const prompt=`You are checking a residential material takeoff for a lumber yard. Image 1 is the MAIN FLOOR PLAN (sheet 6) and image 2 is the FOUNDATION / LOWER LEVEL PLAN (sheet 5) of a bungalow with a walkout on the bedroom side. Plans are not to scale.
@@ -1015,7 +1042,8 @@ const CHECKS=[
   ['info','Transoms ignored','14" transoms over several main floor windows and doors aren\'t modelled, so casing and header heights may need to come up.'],
   ['info','Scale','Both plans are marked N.T.S. Scale came from the 62\'-5" overall width. Levels use the 8\'-7½" basement wall and 10¼" floor from the section.'],
 ];
-$('#checks').innerHTML=CHECKS.map(([k,t,d])=>`<div class="flag ${k}"><b>${t}</b>${d}</div>`).join('');
+function renderChecks(){ $('#checks').innerHTML = isSeedPlan() ? CHECKS.map(([k,t,d])=>`<div class="flag ${k}"><b>${t}</b>${d}</div>`).join('') : '<p class="sub">No AI trace checks yet for this plan — these come from the original Young Residence photo trace.</p>'; }
+renderChecks();
 
 /* ---------- Wiring ---------- */
 function showTab(id){ document.querySelectorAll('.tab').forEach(t=>t.setAttribute('aria-selected',t.dataset.pane===id)); document.querySelectorAll('.pane').forEach(p=>p.hidden=p.id!==id); if(id==='pQuote') renderQuote(); const t=document.querySelector(`.tab[data-pane="${id}"]`); t&&t.scrollIntoView({inline:'nearest',block:'nearest'}); }
@@ -1031,9 +1059,38 @@ $('#tAdd').onclick=()=>setAdding(!adding);
 $('#wallOp').oninput=()=>buildWalls();
 $('#lift').oninput=()=>{ rebuild(); if(topView) setTop(true); };
 ['trimTier','doorTier'].forEach((id,i)=>{ const k=i?'door':'trim', src=i?DOORT:TRIM; $('#'+id).innerHTML=Object.entries(src).map(([v,o])=>`<option value="${v}" ${ui[k]===v?'selected':''}>${o.label}</option>`).join(''); $('#'+id).onchange=e=>{ ui[k]=e.target.value; saveK(OKEY,ui); renderBom(); }; });
-$('#resetAll').onclick=()=>{ if(confirm('Clear your edits to walls, rooms and doors and go back to the original AI trace? Prices and SKUs are kept.')){ const s=clone(SEED); walls=s.walls; rooms=s.rooms; doors=s.doors; opts=s.opts; selId=selRoom=selDoor=null; hi=new Set(); commit(); toast('Back to the AI trace.'); } };
+$('#resetAll').onclick=()=>{ const seed=isSeedPlan(); const msg=seed?'Clear your edits to walls, rooms and doors and go back to the original AI trace? Prices and SKUs are kept.':'Clear all walls, rooms and doors in this plan and start over? Prices and SKUs are kept.'; if(confirm(msg)){ const s=seed?clone(SEED):{walls:[],rooms:[],doors:[],opts:{finBase:false,finGar:false,insSun:false}}; walls=s.walls; rooms=s.rooms; doors=s.doors; opts=s.opts; selId=selRoom=selDoor=null; hi=new Set(); commit(); toast(seed?'Back to the AI trace.':'Plan cleared.'); } };
 function commit(){ save(); refreshAll(); }
 function refreshAll(){ rebuild(); renderList(); renderDetail(); renderRooms(); renderDoors(); renderBom(); if(!$('#pQuote').hidden) renderQuote(); }
+function syncJobHeader(){
+  const j=jobInfo();
+  $('#jobName').textContent=j.job;
+  $('#jobSite').textContent=[j.site, j.customer].filter(Boolean).join(' · ');
+  $('#planSel').innerHTML=plans.map(p=>`<option value="${p.id}" ${p.id===activeId?'selected':''}>${esc(p.name)}</option>`).join('');
+}
+function switchPlan(id){
+  if(id===activeId) return;
+  save();
+  activeId=id; saveK(ACTIVE_KEY, activeId);
+  S=loadActiveData(); walls=S.walls; rooms=S.rooms; doors=S.doors; opts=S.opts;
+  selId=selRoom=selDoor=null; hi=new Set(); hiRow=-1;
+  syncJobHeader(); renderChecks();
+  refreshAll(); buildFloor(); placePlans(); if(topView) setTop(true);
+  toast('Switched to "'+activePlan().name+'".');
+}
+function newPlan(){
+  const name=prompt('Name this plan (e.g. the job or address):','New plan'); if(!name) return;
+  const site=prompt('Site address (optional):','')||'';
+  const customer=prompt('Customer / builder (optional):','')||'';
+  const id='plan-'+Date.now().toString(36);
+  plans.push({id, name, site, customer, rep:'Rob Flagg'}); saveK(PLANS_KEY, plans);
+  saveK(planDataKey(id), {walls:[], rooms:[], doors:[], opts:{finBase:false, finGar:false, insSun:false}});
+  switchPlan(id);
+  toast('New plan created — trace walls with "+ Add wall".');
+}
+$('#newPlanBtn').onclick=newPlan;
+$('#planSel').onchange=e=>switchPlan(e.target.value);
+syncJobHeader();
 renderList(); renderRooms(); renderDoors(); renderBom(); init3d();
 
 </script>
