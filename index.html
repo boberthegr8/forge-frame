@@ -55,6 +55,10 @@ header{grid-column:1/-1;display:flex;align-items:center;gap:14px;padding:10px 16
 .job span{font-size:11px;color:var(--muted)}
 .plans{display:flex;align-items:center;gap:8px}
 .plans select{background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12px;font-weight:600;max-width:200px}
+.photoup{display:flex;align-items:center;gap:6px;margin-left:8px}
+.photow{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)}
+.photow input{width:46px;background:var(--raised);border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:12px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
 .stage{position:relative;min-height:0;background:var(--scene)}
 #cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
 .toolbar{position:absolute;left:12px;top:12px;display:flex;flex-wrap:wrap;gap:6px;max-width:calc(100% - 24px)}
@@ -155,6 +159,7 @@ textarea{width:100%;min-height:130px;background:var(--raised);border:1px solid v
   aside{border-left:0;border-top:1px solid var(--border-soft)}
   .legend{display:none}
   .job{display:none}
+  .photoup{display:none}
   .slider input{width:64px}
   .slider{flex-direction:column;align-items:stretch;gap:4px}
 }
@@ -170,6 +175,7 @@ textarea{width:100%;min-height:130px;background:var(--raised);border:1px solid v
     </a>
     <div class="job" id="jobInfo"><b id="jobName">Young Residence</b><span id="jobSite">Robinson Road, Brantford · Wayne Young BLCA</span></div>
     <div class="plans"><select id="planSel" aria-label="Switch plan"></select><button class="btn" id="newPlanBtn" title="Start a new plan">+ New</button></div>
+    <div class="photoup"><input type="file" id="photoMainInput" accept="image/*" hidden><button class="btn" id="photoMainBtn">Main photo</button><input type="file" id="photoLowerInput" accept="image/*" hidden><button class="btn" id="photoLowerBtn">Lower photo</button><label class="photow">Width <input type="number" id="photoWidth" min="10" max="300" step="1" value="50" title="Photo width in feet, for scale"> ft</label></div>
   </header>
 
   <main class="stage" id="stage">
@@ -351,11 +357,26 @@ const canvas = $('#cv');
 let renderer, scene, cam, controls, planM, planL, wallGroup, floorGroup, roomGroup, raycaster, addMarker, M;
 let topView=false, showFrame=false, showPlan=true, showFloor=true, showRooms=true, adding=false, addStart=null;
 const cssv = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function planGeom(lv){
+  if(isSeedPlan()){ const p=DATA.planes[lv]; return {url:IMG[lv], w:p.w, d:p.d, cx:p.cx, cz:p.cz}; }
+  const ph=loadPlanPhoto(); const shot=ph&&ph[lv]; if(!shot) return null;
+  const wFt=(ph.widthFt)||50, dFt=wFt*((shot.natH&&shot.natW)?(shot.natH/shot.natW):1);
+  return {url:shot.dataUrl, w:wFt, d:dFt, cx:0, cz:0};
+}
 function planMesh(lv){
-  const p=DATA.planes[lv]; const tex=new THREE.TextureLoader().load(IMG[lv]);
+  const g=planGeom(lv); if(!g) return null;
+  const tex=new THREE.TextureLoader().load(g.url);
   tex.anisotropy=renderer.capabilities.getMaxAnisotropy();
-  const m=new THREE.Mesh(new THREE.PlaneGeometry(p.w,p.d), new THREE.MeshBasicMaterial({map:tex, side:THREE.DoubleSide}));
-  m.rotation.x=-Math.PI/2; m.position.set(p.cx,0,p.cz); return m;
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(g.w,g.d), new THREE.MeshBasicMaterial({map:tex, side:THREE.DoubleSide}));
+  m.rotation.x=-Math.PI/2; m.position.set(g.cx,0,g.cz); return m;
+}
+function rebuildPlanMeshes(){
+  if(!scene) return;
+  if(planL){ scene.remove(planL); planL=null; }
+  if(planM){ scene.remove(planM); planM=null; }
+  planL=planMesh('L'); planM=planMesh('M');
+  if(planL) scene.add(planL); if(planM) scene.add(planM);
+  placePlans();
 }
 function init3d(){
   if(!window.THREE){ $('#loading').textContent='3D library failed to load. Check your connection and reload.'; return; }
@@ -381,7 +402,7 @@ function init3d(){
   controls.target.set(34,6,22); cam.position.set(-12,58,92);
   scene.add(new THREE.HemisphereLight(0xffffff,0x666666,0.78));
   const sun=new THREE.DirectionalLight(0xffffff,0.62); sun.position.set(-40,90,70); scene.add(sun);
-  planL=planMesh('L'); planM=planMesh('M'); scene.add(planL, planM);
+  planL=planMesh('L'); planM=planMesh('M'); if(planL) scene.add(planL); if(planM) scene.add(planM);
   raycaster=new THREE.Raycaster();
   wallGroup=new THREE.Group(); floorGroup=new THREE.Group(); roomGroup=new THREE.Group(); scene.add(wallGroup, floorGroup, roomGroup);
   addMarker=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,0.3,16), new THREE.MeshBasicMaterial({color:0xff7417})); addMarker.visible=false; scene.add(addMarker);
@@ -406,7 +427,7 @@ function spans(w){ const L=len(w), ops=[...w.ops].sort((a,b)=>a.at-b.at), out=[]
 const wallBase = w => w.base + (w.level==='M' ? lift() : 0);
 const thick = w => TYPES[w.type].t || THICK[TYPES[w.type].stud];
 function rebuild(){ if(!scene) return; buildWalls(); buildFloor(); buildRooms(); placePlans(); }
-function placePlans(){ planL.position.y=-0.02; planM.position.y=E.MAIN+lift()+0.01; planL.visible=showPlan&&isSeedPlan()&&(level==='L'||level==='A'); planM.visible=showPlan&&isSeedPlan()&&level==='M'; }
+function placePlans(){ if(planL){ planL.position.y=-0.02; planL.visible=showPlan&&(level==='L'||level==='A'); } if(planM){ planM.position.y=E.MAIN+lift()+0.01; planM.visible=showPlan&&level==='M'; } }
 function buildWalls(){
   if(!scene) return; clearGroup(wallGroup);
   walls.forEach(w=>{
@@ -1062,11 +1083,39 @@ $('#lift').oninput=()=>{ rebuild(); if(topView) setTop(true); };
 $('#resetAll').onclick=()=>{ const seed=isSeedPlan(); const msg=seed?'Clear your edits to walls, rooms and doors and go back to the original AI trace? Prices and SKUs are kept.':'Clear all walls, rooms and doors in this plan and start over? Prices and SKUs are kept.'; if(confirm(msg)){ const s=seed?clone(SEED):{walls:[],rooms:[],doors:[],opts:{finBase:false,finGar:false,insSun:false}}; walls=s.walls; rooms=s.rooms; doors=s.doors; opts=s.opts; selId=selRoom=selDoor=null; hi=new Set(); commit(); toast(seed?'Back to the AI trace.':'Plan cleared.'); } };
 function commit(){ save(); refreshAll(); }
 function refreshAll(){ rebuild(); renderList(); renderDetail(); renderRooms(); renderDoors(); renderBom(); if(!$('#pQuote').hidden) renderQuote(); }
+function planPhotoKey(id){ return 'forge-frame-photo-'+id; }
+function loadPlanPhoto(){ return loadK(planPhotoKey(activeId), {widthFt:50}); }
+function savePlanPhoto(ph){ saveK(planPhotoKey(activeId), ph); }
+function uploadPhoto(lv, file){
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    const img=new Image();
+    img.onload=()=>{
+      const ph=loadPlanPhoto();
+      ph[lv]={dataUrl:reader.result, natW:img.naturalWidth, natH:img.naturalHeight};
+      savePlanPhoto(ph);
+      rebuildPlanMeshes();
+      showPlan=true; $('#tPlan').setAttribute('aria-pressed','true');
+      toast((lv==='M'?'Main floor':'Lower level')+' photo added — set "Width" to a known dimension, then trace walls with "+ Add wall".');
+    };
+    img.src=reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+function syncPhotoControls(){
+  const seed=isSeedPlan();
+  $('#photoMainBtn').disabled=seed; $('#photoLowerBtn').disabled=seed; $('#photoWidth').disabled=seed;
+  const tip = seed ? 'Young Residence already has its own floor plan photos' : 'Upload a reference photo for this level';
+  $('#photoMainBtn').title=tip; $('#photoLowerBtn').title=tip;
+  $('#photoWidth').value=(loadPlanPhoto().widthFt)||50;
+}
 function syncJobHeader(){
   const j=jobInfo();
   $('#jobName').textContent=j.job;
   $('#jobSite').textContent=[j.site, j.customer].filter(Boolean).join(' · ');
   $('#planSel').innerHTML=plans.map(p=>`<option value="${p.id}" ${p.id===activeId?'selected':''}>${esc(p.name)}</option>`).join('');
+  syncPhotoControls();
 }
 function switchPlan(id){
   if(id===activeId) return;
@@ -1075,7 +1124,7 @@ function switchPlan(id){
   S=loadActiveData(); walls=S.walls; rooms=S.rooms; doors=S.doors; opts=S.opts;
   selId=selRoom=selDoor=null; hi=new Set(); hiRow=-1;
   syncJobHeader(); renderChecks();
-  refreshAll(); buildFloor(); placePlans(); if(topView) setTop(true);
+  refreshAll(); buildFloor(); rebuildPlanMeshes(); if(topView) setTop(true);
   toast('Switched to "'+activePlan().name+'".');
 }
 function newPlan(){
@@ -1091,6 +1140,11 @@ function newPlan(){
 $('#newPlanBtn').onclick=newPlan;
 $('#planSel').onchange=e=>switchPlan(e.target.value);
 syncJobHeader();
+$('#photoMainBtn').onclick=()=>$('#photoMainInput').click();
+$('#photoLowerBtn').onclick=()=>$('#photoLowerInput').click();
+$('#photoMainInput').onchange=e=>uploadPhoto('M', e.target.files[0]);
+$('#photoLowerInput').onchange=e=>uploadPhoto('L', e.target.files[0]);
+$('#photoWidth').onchange=e=>{ const ph=loadPlanPhoto(); ph.widthFt=parseFloat(e.target.value)||50; savePlanPhoto(ph); rebuildPlanMeshes(); };
 renderList(); renderRooms(); renderDoors(); renderBom(); init3d();
 
 </script>
