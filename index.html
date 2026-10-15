@@ -164,6 +164,7 @@ textarea{width:100%;min-height:130px;background:var(--raised);border:1px solid v
   .slider{flex-direction:column;align-items:stretch;gap:4px}
 }
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
+body.ff-embed .brand,body.ff-embed .plans{display:none}
 </style>
 </head>
 <body>
@@ -324,6 +325,21 @@ function loadPlans(){
 let plans = loadPlans();
 let activeId = loadK(ACTIVE_KEY, null);
 if(!activeId || !plans.some(p=>p.id===activeId)) activeId = plans[0].id;
+const EMBED_PARAMS = new URLSearchParams(location.search);
+const EMBED = EMBED_PARAMS.get('embed')==='1';
+const EMBED_PROJECT = EMBED_PARAMS.get('project')||'';
+const EMBED_NAME = EMBED_PARAMS.get('name')||'';
+if(EMBED && EMBED_PROJECT){
+  const pid = 'scope-'+EMBED_PROJECT;
+  if(!plans.some(p=>p.id===pid)){
+    plans.push({id:pid, name:EMBED_NAME||'Forge Scope job', site:'', customer:'', rep:'Rob Flagg'});
+    saveK(PLANS_KEY, plans);
+    saveK(planDataKey(pid), {walls:[], rooms:[], doors:[], opts:{finBase:false, finGar:false, insSun:false}});
+  }
+  activeId = pid;
+  saveK(ACTIVE_KEY, activeId);
+}
+if(typeof document!=='undefined' && EMBED) document.body.classList.add('ff-embed');
 const activePlan = () => plans.find(p=>p.id===activeId) || plans[0];
 const isSeedPlan = () => activeId === SEED_ID;
 function loadActiveData(){ return loadK(planDataKey(activeId), null) || {walls:[], rooms:[], doors:[], opts:{finBase:false, finGar:false, insSun:false}}; }
@@ -333,7 +349,13 @@ let S = loadActiveData(); let walls=S.walls, rooms=S.rooms, doors=S.doors, opts=
 let prices = loadK(PKEY, {}); let ui = loadK(OKEY, {trim:'better', door:'better', gm:25});
 let selId=null, selRoom=null, selDoor=null, hi=new Set(), hiRow=-1, level='A';
 const $ = s => document.querySelector(s);
-function save(){ saveK(planDataKey(activeId), {walls,rooms,doors,opts}); }
+function save(){ saveK(planDataKey(activeId), {walls,rooms,doors,opts}); if(EMBED) postBomToParent(); }
+function postBomToParent(){
+  try{
+    const rows=bomData();
+    parent.postMessage({type:'forgeFrame:bomUpdate', project:EMBED_PROJECT, rows, walls, rooms, doors, jobName:(jobInfo()||{}).job}, '*');
+  }catch(e){}
+}
 const len = w => Math.hypot(w.b[0]-w.a[0], w.b[1]-w.a[1]);
 const fmtFt = f => { const t=Math.round(f*12); return `${Math.floor(t/12)}'-${t%12}"`; };
 const esc = s => String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -1146,6 +1168,7 @@ $('#photoMainInput').onchange=e=>uploadPhoto('M', e.target.files[0]);
 $('#photoLowerInput').onchange=e=>uploadPhoto('L', e.target.files[0]);
 $('#photoWidth').onchange=e=>{ const ph=loadPlanPhoto(); ph.widthFt=parseFloat(e.target.value)||50; savePlanPhoto(ph); rebuildPlanMeshes(); };
 renderList(); renderRooms(); renderDoors(); renderBom(); init3d();
+if(EMBED){ try{ parent.postMessage({type:'forgeFrame:ready', project:EMBED_PROJECT}, '*'); }catch(e){} postBomToParent(); }
 
 </script>
 </body>
