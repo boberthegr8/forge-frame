@@ -1170,6 +1170,68 @@ $('#photoWidth').onchange=e=>{ const ph=loadPlanPhoto(); ph.widthFt=parseFloat(e
 renderList(); renderRooms(); renderDoors(); renderBom(); init3d();
 if(EMBED){ try{ parent.postMessage({type:'forgeFrame:ready', project:EMBED_PROJECT}, '*'); }catch(e){} postBomToParent(); }
 
+/* ---------- Automatic AI trace (from Forge Scope) ---------- */
+window.addEventListener('message', function(e){
+  var d = e.data;
+  if(!d || typeof d !== 'object' || d.type !== 'forgeFrame:loadModel') return;
+  if(!EMBED || (EMBED_PROJECT && d.project !== EMBED_PROJECT)) return;
+  try{
+    var lv = function(v){ return v === 'L' ? 'L' : 'M'; };
+    var nw = (d.walls||[]).map(function(w,i){
+      var level = lv(w.level);
+      return {
+        id: 'A'+(i+1), name: w.name || ('Wall '+(i+1)), level: level,
+        type: (w.type && TYPES[w.type]) ? w.type : 'int',
+        a: [+w.a[0]||0, +w.a[1]||0], b: [+w.b[0]||0, +w.b[1]||0],
+        h: level === 'L' ? E.LOW_TOP : 9.1, base: level === 'L' ? 0 : E.MAIN,
+        ops: []
+      };
+    });
+    (d.openings||[]).forEach(function(o){
+      var ww = nw[o.wallIndex]; if(!ww) return;
+      var isWin = o.kind === 'win';
+      ww.ops.push({
+        at: +o.at||0, w: +o.w||3,
+        h: +o.h || (isWin?5:6.67), head: +o.head || (isWin?6.5:6.67),
+        kind: isWin ? 'win' : undefined
+      });
+    });
+    var nr = (d.rooms||[]).map(function(r,i){
+      return { id:'R'+(i+1), name: r.name || ('Room '+(i+1)), level: lv(r.level),
+        poly: (r.poly||[]).map(function(p){ return [+p[0]||0, +p[1]||0]; }), ch: +r.ch||9, wet: !!r.wet };
+    });
+    var kindMap = {swing:'swing',pocket:'pocket',bifold:'bifold',ext:'ext',exterior:'ext',patio:'patio',oh:'oh',overhead:'oh'};
+    var nd = (d.doors||[]).map(function(dd,i){
+      var k = kindMap[dd.kind] || 'swing';
+      var ww = nw[dd.wallIndex];
+      var pos = null, or = 'h';
+      if(ww){
+        var L = Math.hypot(ww.b[0]-ww.a[0], ww.b[1]-ww.a[1]) || 1;
+        var t = Math.max(0, Math.min(L, +dd.at || L/2));
+        pos = [ ww.a[0] + (ww.b[0]-ww.a[0])*t/L, ww.a[1] + (ww.b[1]-ww.a[1])*t/L ];
+        or = Math.abs(ww.b[0]-ww.a[0]) >= Math.abs(ww.b[1]-ww.a[1]) ? 'h' : 'v';
+      }
+      var rm = nr.find(function(r){ return r.name && dd.room && r.name.toLowerCase() === String(dd.room).toLowerCase(); });
+      return {
+        id: 'D'+(i+1), name: dd.name || ('Door '+(i+1)), kind: k,
+        w: +dd.w || (k==='oh'?96:30), h: k==='oh'?96:80,
+        pos: pos, or: or, level: lv(dd.level || (ww?ww.level:'M')), rooms: rm?[rm.id]:[],
+        hw: k==='ext'?'keyed':k==='bifold'?'bifold':k==='pocket'?'pocket':k==='patio'?'patio':k==='oh'?'none':'passage',
+        casing: k==='oh'?0:(k==='bifold'||k==='ext')?1:2, wall: ww?ww.id:null, ai:true
+      };
+    });
+    walls = nw; rooms = nr; doors = nd;
+    selId = selRoom = selDoor = null; hi = new Set(); hiRow = -1;
+    save(); refreshAll(); buildFloor(); rebuildPlanMeshes(); if(topView) setTop(true);
+    toast('3D model built automatically from the plans.');
+    try{ parent.postMessage({type:'forgeFrame:traced', project:EMBED_PROJECT}, '*'); }catch(e2){}
+  }catch(err){
+    console.error('Forge Frame: failed to load AI-traced model', err);
+    toast('Could not load the automatic trace. You can still trace it by hand.');
+  }
+});
+
+
 </script>
 </body>
 </html>
