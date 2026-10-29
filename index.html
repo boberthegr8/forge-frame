@@ -757,25 +757,161 @@ function quantities(){
 }
 
 /* ---------- BOM ---------- */
+/* ---------- Step 2 lumber method (reverse-engineered from Step 2 Design Group / PlanSwift estimates) ---------- */
+const S2 = {
+  oc:16, junctionStuds:3, kings:2, trimmers:2, wideTrimmers:4, wideOpening:6,
+  tallWall:10.5, blockStock:12, plateStock:16,
+  lintelExt:[['2-2x6',5.42],['2-2x8',6.58],['2-2x10',8.08],['2-2x12',9.33]],
+  lintelInt:[['2-2x8',5.33],['2-2x10',6.58],['2-2x12',7.58]],
+  lumberStock:[8,10,12,14,16,18,20], joistAllowance:1.25,
+  subfloorWaste:1.07, sheetsPerTube:4, strapStock:8,
+  roofWaste:1.08, clipsPerSheet:2.82, bracingOC:2.5, bracingWaste:1.10, bracingStock:14,
+  outlookerOC:2, outlookerLen:3.5, ladderStock:12, fasciaStock:12, nailerStock:12
+};
+const s2Stock = L => S2.lumberStock.find(s=>s>=L-0.01) || Math.ceil(L/2)*2;
+const s2Num = (v,d=0) => { const n=parseFloat(v); return isFinite(n)?n:d; };
+function s2Lintel(o,w){
+  if(o.hdr) return o.hdr;
+  if(w.type==='int') return 'flat';
+  const tbl = (w.type==='int6'||w.type==='bear') ? S2.lintelInt : S2.lintelExt;
+  const hit = tbl.find(([,max])=>o.w<=max+0.01);
+  return hit ? hit[0] : 'supplier';
+}
+function s2Junctions(fw){
+  const seen=new Map();
+  fw.forEach(w=>[w.a,w.b].forEach(p=>{
+    const host=fw.find(o=>o!==w && distPtSeg(p,o.a,o.b)<0.8);
+    if(!host) return;
+    const key=(Math.round(p[0]*2)/2)+','+(Math.round(p[1]*2)/2);
+    if(!seen.has(key)) seen.set(key,host);
+  }));
+  return [...seen.values()];
+}
 function wallRows(ws, area){
-  const rows=[], by={}, pl={}, hdr={'2-2x8':{lf:0,src:[]},'2-2x10':{lf:0,src:[]}};
-  ws.filter(FRAMED).forEach(w=>{
-    const st=TYPES[w.type].stud, L=len(w), sl=studLen(w.h), k=st+'|'+sl;
-    by[k]=by[k]||{st,sl,lf:0,src:[]}; by[k].lf+=L; by[k].src.push(w.id);
-    const pk=st+(w.type==='bear'?' PT':''); pl[pk]=pl[pk]||{lf:0,src:[]}; pl[pk].lf+=L; pl[pk].src.push(w.id);
-    w.ops.forEach(o=>{ const h=hdrFor(o,w); if(h==='flat') return;
-      if(isEng(h)) rows.push({item:'Engineered header, by supplier', qty:'—', usage:`${h==='supplier'?'':h+' · '}${opLabel(o)}, ${w.name}`, src:[w.id]});
-      else { hdr[h].lf+=(o.w+0.5)*2; hdr[h].src.push(w.id); } });
+  const fw=ws.filter(FRAMED), out=[], eng=[], G={};
+  const grp=(k,o)=>(G[k]=G[k]||Object.assign({qty:0,lf:0,n:0,src:[]},o));
+  fw.forEach(w=>{
+    const st=TYPES[w.type].stud, L=len(w), sl=studLen(w.h), bearing=w.type!=='int', ops=w.ops||[];
+    const c=grp('stud|'+st+'|'+sl,{order:1,kind:'stud',item:`${st} SPF ${sl} — wall studs @ 16" o.c.`});
+    c.qty+=Math.ceil(L*12/S2.oc)+1; c.lf+=L; c.src.push(w.id);
+    if(ops.length){
+      const t=grp('trim|'+st+'|'+sl+'|'+bearing,{order:3,kind:'trim',item:`${st} SPF ${sl} — trimmers/kings, ${bearing?'load-bearing':'non-load-bearing'} openings`});
+      ops.forEach(o=>{ t.qty+=S2.kings+(o.w>S2.wideOpening?S2.wideTrimmers:S2.trimmers); t.n++; }); t.src.push(w.id);
+    }
+    const tp=grp('top|'+st,{order:4,kind:'top',item:`${st} SPF 16' top plates (2-ply)`}); tp.lf+=L; tp.src.push(w.id);
+    const pt=w.type==='bear';
+    const bp=grp('bot|'+st+(pt?'PT':''),{order:5,kind:'bot',item:pt?`${st} PT 16' bottom plates (per plan)`:`${st} SPF 16' bottom plates (1-ply)`}); bp.lf+=L; bp.src.push(w.id);
+    const rows=w.h>S2.tallWall?2:1;
+    const bl=grp('blk|'+st,{order:6,kind:'blk',item:`${st} SPF 12' mid-wall blocking`}); bl.lf+=L*rows; bl.src.push(w.id);
+    ops.forEach(o=>{
+      const h=s2Lintel(o,w); if(h==='flat') return;
+      if(isEng(h)){ eng.push({item:'Engineered header, by supplier', qty:'—', usage:`${h==='supplier'?'over lintel schedule max · ':h+' · '}${opLabel(o)}, ${w.name}`, src:[w.id]}); return; }
+      const m=/(\d)-2x(\d+)/.exec(h), plies=m?+m[1]:2, size=m?'2x'+m[2]:'2x8', Lh=o.w+0.5;
+      for(let i=0;i<plies;i++){
+        if(Lh<=3.75){ const g=grp('lh|'+size,{order:7,kind:'half',size}); g.qty+=0.5; g.lf+=Lh; g.src.push(w.id); }
+        else { const s=s2Stock(Lh), g=grp('lt|'+size+'|'+s,{order:7,kind:'lint',item:`${size} SPF ${s}' (lintels)`}); g.qty+=1; g.lf+=Lh; g.src.push(w.id); }
+      }
+    });
   });
-  const out=[];
-  Object.values(by).forEach(g=>out.push({item:`${g.st} SPF stud, ${g.sl}`, qty:Math.ceil(g.lf*1.05), usage:`${Math.round(g.lf)} LF × 1.05`, src:g.src}));
-  Object.entries(pl).forEach(([st,g])=>{
-    if(st.endsWith('PT')){ out.push({item:'2x4 PT 16\' bottom plates (per plan)', qty:Math.ceil(g.lf*2/16*1.05), usage:`${Math.round(g.lf)} LF × 2 plies on strip footing`, src:g.src}); out.push({item:'2x4 SPF 16\' top plates', qty:Math.ceil(g.lf*2/16*1.05), usage:`${Math.round(g.lf)} LF × 2`, src:g.src}); }
-    else out.push({item:`${st} SPF 16' plate stock`, qty:Math.ceil(g.lf*3/16*1.05), usage:`${Math.round(g.lf)} LF × 3 plates, 5% waste`, src:g.src});
+  s2Junctions(fw).forEach(host=>{
+    const st=TYPES[host.type].stud, sl=studLen(host.h);
+    const j=grp('jn|'+st+'|'+sl,{order:2,kind:'jn',item:`${st} SPF ${sl} — corner/intersection studs`}); j.qty+=S2.junctionStuds; j.n++; j.src.push(host.id);
   });
-  if(hdr['2-2x8'].lf) out.push({item:'2x8 SPF 16\' (lintels)', qty:Math.ceil(hdr['2-2x8'].lf/16), usage:`${Math.round(hdr['2-2x8'].lf)} LF of 2-ply`, src:hdr['2-2x8'].src});
-  if(hdr['2-2x10'].lf) out.push({item:'2x10 SPF 16\' (lintels)', qty:Math.ceil(hdr['2-2x10'].lf/16), usage:`${Math.round(hdr['2-2x10'].lf)} LF of 2-ply`, src:hdr['2-2x10'].src});
-  return out.concat(rows).map(r=>({...r, area}));
+  Object.keys(G).filter(k=>k.startsWith('lh|')).forEach(k=>{
+    const h=G[k], g=grp('lt|'+h.size+'|8',{order:7,kind:'lint',item:`${h.size} SPF 8' (lintels)`}); g.qty+=Math.ceil(h.qty); g.lf+=h.lf; g.src.push(...h.src); delete G[k];
+  });
+  Object.values(G).sort((a,b)=>a.order-b.order).forEach(g=>{
+    let qty=g.qty, usage='';
+    if(g.kind==='stud') usage=`${Math.round(g.lf)} LF · 1 per 16" + 1 per wall, openings not deducted (Step 2 method)`;
+    else if(g.kind==='jn') usage=`${g.n} corners/intersections × ${S2.junctionStuds}`;
+    else if(g.kind==='trim') usage=`${g.n} openings · 2 kings + 2 trimmers (4 trimmers over ${S2.wideOpening}')`;
+    else if(g.kind==='top'){ qty=Math.ceil(g.lf*2/S2.plateStock); usage=`${Math.round(g.lf)} LF × 2 plies, no waste`; }
+    else if(g.kind==='bot'){ qty=Math.ceil(g.lf/S2.plateStock); usage=`${Math.round(g.lf)} LF × 1 ply, no waste`; }
+    else if(g.kind==='blk'){ qty=Math.ceil(g.lf/S2.blockStock); usage=`${Math.round(g.lf)} LF · 1 row (2 rows on walls over ${S2.tallWall}')`; }
+    else if(g.kind==='lint') usage=`${Math.round(g.lf)} LF of 2-ply lintel, sized from plan lintel schedule (roof & ceiling, 4.9 m)`;
+    if(qty>0) out.push({item:g.item, qty, usage, src:[...new Set(g.src)]});
+  });
+  return out.concat(eng).map(r=>({...r, area}));
+}
+function s2FloorRows(f){
+  const rows=[], push=(item,qty,usage)=>{ if(!qty) return; rows.push({item,qty,usage,src:['FLOOR'],area:'Floor'}); };
+  const js=f.joistSize||'2x10', sp=s2Num(f.spacingIn,16), byStock={};
+  let runSum=0, bridgeBays=0, blockLF=0;
+  (Array.isArray(f.bands)?f.bands:[]).forEach(b=>{
+    const span=s2Num(b.span), run=s2Num(b.run); if(!(span>0&&run>0)) return;
+    const bsp=s2Num(b.spacingIn,sp), n=Math.ceil(run*12/bsp)+1+Math.max(0,Math.round(s2Num(b.doubles)));
+    const st=s2Stock(span+S2.joistAllowance), sz=b.joistSize||js, k=sz+'|'+st;
+    byStock[k]=byStock[k]||{sz,st,n:0,names:[]}; byStock[k].n+=n; byStock[k].names.push(`${b.name||'bay'} ${fmtFt(span)}`);
+    runSum+=run*s2Num(b.rimEnds,1); bridgeBays+=Math.max(0,n-1); blockLF+=2*span;
+  });
+  const groups=Object.values(byStock).sort((a,b)=>b.st-a.st);
+  groups.forEach(g=>push(`${g.sz} SPF ${g.st}' floor joists`, g.n, `${g.names.join(', ')} · stock = next length ≥ span + 1'-3"`));
+  const dbl=Math.max(0,Math.round(s2Num(f.doubledJoists)));
+  if(dbl) push(`${js} SPF ${groups.length?groups[0].st:16}' doubled joists`, dbl, 'under parallel walls above and around stairs (plan note)');
+  const rim=s2Num(f.rimLF, runSum);
+  push(`${js} SPF 16' rim / ledger`, Math.ceil(rim/16), `${Math.round(rim)} LF at joist-end walls, 1 ply`);
+  push(`${js} SPF 12' floor blocking`, Math.ceil(blockLF/12), `${Math.round(blockLF)} LF at parallel edges, 24" o.c.`);
+  const br=Math.round(s2Num(f.bridgingRows));
+  if(br>0) push(`Cross bridging for ${js} @ ${sp}" (pair)`, br*bridgeBays, `${br} rows × ${bridgeBays} joist bays (plan note)`);
+  const fb={}; let hang=0, hang2=0;
+  (f.flushBeams||[]).forEach(b=>{
+    const L=s2Num(b.length), p=Math.max(1,Math.round(s2Num(b.plies,2))), sz=b.size||js; if(!(L>0)) return;
+    const st=s2Stock(L), k=sz+'|'+st; fb[k]=fb[k]||{sz,st,n:0,names:[]}; fb[k].n+=p; fb[k].names.push(b.name||`${p}-ply ${fmtFt(L)}`);
+    const sides=b.hangers==='both'?2:b.hangers==='none'?0:1; hang+=sides*Math.ceil(L*12/sp); if(sides) hang2+=2;
+  });
+  Object.values(fb).forEach(g=>push(`${g.sz} SPF ${g.st}' built-up flush beam plies`, g.n, g.names.join(', ')));
+  const hn='JUS2'+(String(js).split('x')[1]||'10');
+  push(`USP ${hn} face-mount hanger`, hang, 'joists hung on flush beams');
+  push(`USP ${hn}-2 face-mount hanger`, hang2, 'flush beam ends / doubled members');
+  let steelLF=0;
+  (f.steelBeams||[]).forEach(b=>{ const L=s2Num(b.length); steelLF+=L; push(`Steel beam ${b.size||''} — lineal ft`.replace('  ',' '), Math.ceil(L), 'by steel supplier — shop lengths and bearing by fabricator'); });
+  push(`2x6 SPF 12' beam nailer`, Math.ceil(steelLF/S2.nailerStock), `${Math.round(steelLF)} LF on top of steel, 1 ply`);
+  (f.steelColumns||[]).forEach(c=>push(`Steel column ${c.size||''}`.trim(), Math.round(s2Num(c.count,1)), 'by steel supplier'));
+  (f.woodPosts||[]).forEach(p=>push(`${p.size||'6x6'} ${p.treated?'PT':'SPF #1/2'} ${s2Stock(s2Num(p.height,8.5)+0.5)}' post`, Math.round(s2Num(p.count,1)), p.name||'basement posts'));
+  const A=s2Num(f.areaSF);
+  if(A){
+    const sh=Math.ceil(A*S2.subfloorWaste/32);
+    push('3/4" OSB T&G subfloor 4×8', sh, `${Math.round(A)} sq ft × ${S2.subfloorWaste}`);
+    push('Subfloor adhesive (canister)', Math.max(1,Math.floor(sh/S2.sheetsPerTube)), `1 per ${S2.sheetsPerTube} sheets`);
+    const so=s2Num(f.strappingOC); if(so>0){ const lf=A/(so/12); push(`1x3 SPF 8' ceiling strapping`, Math.ceil(lf/S2.strapStock), `${Math.round(lf)} LF @ ${so}" o.c.`); }
+  }
+  push(`Floor / rim wrap 3'×100'`, Math.ceil(rim/100), `${Math.round(rim)} LF rim`);
+  return rows;
+}
+function s2RoofRows(r){
+  const rows=[], push=(item,qty,usage)=>{ if(!qty) return; rows.push({item,qty,usage,src:['ROOF'],area:'Roof'}); };
+  const fp=s2Num(r.footprintSF);
+  let planes=(Array.isArray(r.planes)?r.planes:[]).filter(p=>s2Num(p.planSF)>0);
+  if(!planes.length && fp) planes=[{pitch:s2Num(r.mainPitch,9), planSF:fp}];
+  const sh0=r.sheathing||'3/8" plywood', clip=/1\/2/.test(sh0)?'1/2"':/5\/8/.test(sh0)?'5/8"':'3/8"';
+  if(fp) push(`Engineered roof trusses @ ${s2Num(r.trussOC,24)}" o.c.`, '—', 'by truss supplier — girders, layout and bearing per truss drawings');
+  planes.forEach(p=>{
+    const pt=s2Num(p.pitch,9), f=Math.sqrt(1+(pt/12)**2), sh=Math.ceil(s2Num(p.planSF)*f*S2.roofWaste/32);
+    push(`${sh0} 4×8 roof sheathing — ${pt}/12`, sh, `${Math.round(s2Num(p.planSF))} sq ft plan × ${f.toFixed(3)} slope × ${S2.roofWaste}`);
+    push(`H-clips ${clip} — ${pt}/12`, Math.round(sh*S2.clipsPerSheet), `${S2.clipsPerSheet} per sheet`);
+  });
+  if(fp) push(`2x4 SPF 14' truss bracing`, Math.max(1,Math.round(fp/S2.bracingOC*S2.bracingWaste/S2.bracingStock)), `${Math.round(fp)} sq ft footprint ÷ ${S2.bracingOC}' × ${S2.bracingWaste}`);
+  const eave=s2Num(r.eaveLF), rake=s2Num(r.rakeLF);
+  push(`2x6 SPF 12' sub-fascia`, Math.ceil(eave/S2.fasciaStock), `${Math.round(eave)} LF eaves`);
+  push(`2x4 SPF 12' gable ladder plates`, Math.ceil(rake/S2.ladderStock), `${Math.round(rake)} LF rakes`);
+  push(`2x4 SPF 12' gable outlookers`, Math.ceil(rake/S2.outlookerOC*S2.outlookerLen/S2.ladderStock), `${Math.round(rake)} LF rakes @ ${S2.outlookerOC*12}" o.c. × ${S2.outlookerLen}'`);
+  const vp=s2Num(r.valleyPlateLF), rb=s2Num(r.ridgeBoardLF);
+  push(`2x10 SPF 16' valley plates`, Math.ceil(vp/16), `${Math.round(vp)} LF where overframing sits on trusses`);
+  push(`2x10 SPF 16' ridge board`, Math.ceil(rb/16), `${Math.round(rb)} LF conventional ridge`);
+  (r.conventional||[]).forEach(c=>{ const n=Math.round(s2Num(c.rafters)); push(`${c.size||'2x6'} SPF ${s2Stock(s2Num(c.length,12))}' rafters/joists${c.pitch?` — ${c.pitch}/12`:''}`, n, c.name||'conventional framing'); });
+  return rows;
+}
+function s2PorchRows(p){
+  const rows=[], push=(item,qty,usage)=>{ if(!qty) return; rows.push({item,qty,usage,src:['PORCH'],area:'Porch'}); };
+  let posts=0; const bm={}; let bu=0;
+  (p.posts||[]).forEach(x=>{ const n=Math.round(s2Num(x.count,1)); posts+=n; push(`${x.size||'6x6'} ${x.treated===false?'SPF':'PT'} ${s2Stock(s2Num(x.height,8)+1)}' post`, n, x.name||'porch posts'); });
+  push('Post base, corrosion resistant (EPBH66 or equal)', posts, '1 per post');
+  push('Post cap, corrosion resistant (PBC66 or equal)', posts, '1 per post');
+  (p.beams||[]).forEach(b=>{ const L=s2Num(b.length), pl=Math.max(1,Math.round(s2Num(b.plies,2))), sz=b.size||'2x10'; if(!(L>0)) return;
+    const st=s2Stock(L), k=sz+'|'+st; bm[k]=bm[k]||{sz,st,n:0,names:[]}; bm[k].n+=pl; bm[k].names.push(b.name||`${pl}-ply ${fmtFt(L)}`); bu+=pl*Math.round(s2Num(b.wallEnds,0)); });
+  Object.values(bm).forEach(g=>push(`${g.sz} SPF ${g.st}' porch beam/lintel plies`, g.n, g.names.join(', ')));
+  push('2x6 SPF 104-5/8" precut — built-up posts', bu, 'beam ends bearing on wall framing (stud depth × beam width)');
+  return rows;
 }
 function bomData(tierT, tierD){
   tierT=tierT||ui.trim; tierD=tierD||ui.door;
@@ -804,17 +940,22 @@ function bomData(tierT, tierD){
     {item:'Flush LVL in floor at walkout', qty:'—', usage:'2 runs, by supplier', src:F},
     {item:'3" adjustable steel post', qty:2, usage:'basement beam', src:F},
   ].map(r=>({...r, area:'Floor'})));
-  }
-  sec('Foundation interface', [{item:'2x6 SPF 16\' sill plate (no PT)', qty:Math.ceil(sill*1.05/16), usage:`${Math.round(sill)} LF on excavated foundation`, src:concIds, area:'Lower'}]);
+  } else if(opts.floorSys){ sec('Floor system (Step 2 method)', s2FloorRows(opts.floorSys)); }
+  else { sec('Floor system', [{item:'Floor system not captured — rerun the automatic trace from Forge Scope', qty:'—', usage:'joists, beams, rim, subfloor', src:['FLOOR'], area:'Floor'}]); }
+  const sillLF = sill || s2Num(opts.floorSys && opts.floorSys.sillLF);
+  sec('Foundation interface', [{item:'2x6 SPF 16\' sill plate (no PT)', qty:Math.ceil(sillLF/16), usage:`${Math.round(sillLF)} LF of foundation, no waste (Step 2 method)`, src:concIds, area:'Lower'}]);
   sec('Main floor framing', wallRows(Mw,'Main'));
   if(isSeedPlan()){
   sec('Posts and beams', [
     {item:'6x6 PT post', qty:5, usage:'2 lower patio, 3 rear deck', src:F, area:'Site'},
     {item:'2x10 PT 16\' (3-ply beams)', qty:9, usage:'lower patio and deck beams, 3 plies', src:F, area:'Site'}]);
   }
+  if(!isSeedPlan() && opts.porchSys) sec('Porch / deck framing (Step 2 method)', s2PorchRows(opts.porchSys));
+  if(opts.roofSys) sec('Roof framing and sheathing (Step 2 method)', s2RoofRows(opts.roofSys));
+  const extGross=extW.reduce((s,w)=>s+len(w)*w.h,0), gableSF=s2Num(opts.roofSys && opts.roofSys.gableSF);
   sec('Sheathing and wrap', [
-    {item:'7/16" OSB 4×9 wall sheathing', qty:Math.ceil(extArea/36*1.05), usage:`${Math.round(extArea)} sq ft net, both levels`, src:extIds, area:'Whole house'},
-    {item:'House wrap 9\'×150\'', qty:Math.ceil(extArea*1.1/1350), usage:`${Math.round(extArea)} sq ft + 10% laps`, src:extIds, area:'Whole house'}]);
+    {item:'7/16" OSB 4×8 wall sheathing', qty:Math.ceil((extArea+gableSF)/32), usage:`${Math.round(extGross)} sq ft gross − openings = ${Math.round(extArea)} net${gableSF?` + ${Math.round(gableSF)} gable`:''}, no waste (Step 2 method)`, src:extIds, area:'Whole house'},
+    {item:'House wrap 9\'×100\'', qty:Math.ceil((extGross+gableSF)/900), usage:`${Math.round(extGross+gableSF)} sq ft gross wall`, src:extIds, area:'Whole house'}]);
   const ins=[
     {item:'R22 batt, 2x6 wall', qty:Math.ceil(q.insArea/COVER.r22), usage:`${Math.round(q.insArea)} sq ft at ~${COVER.r22} sq ft/bag`, src:q.insSrc, area:'Whole house'},
     {item:'Blown attic insulation, R50', qty:Math.ceil(q.heated/COVER.r50), usage:`${Math.round(q.heated)} sq ft heated ceiling, ~${COVER.r50} sq ft/bag at R50`, src:q.dw.csrc?[...q.dw.csrc]:[], area:'Main'},
@@ -863,7 +1004,7 @@ function bomData(tierT, tierD){
   ]);
   const up=[
     {item:'Sill gasket 5-1/2" × 50\'', qty:Math.ceil((sill+walkLF)/50), usage:`${Math.round(sill+walkLF)} LF sill and walkout`, src:[...concIds,...walk.map(w=>w.id)], area:'Lower'},
-    {item:'Subfloor adhesive (tube)', qty:Math.ceil(area/32*1.05/2), usage:'1 tube per 2 sheets', src:F, area:'Floor'},
+    ...(isSeedPlan()?[{item:'Subfloor adhesive (tube)', qty:Math.max(1,Math.floor(Math.ceil(area/32*1.05)/4)), usage:'1 tube per 4 sheets', src:F, area:'Floor'}]:[]),
     {item:'House wrap tape', qty:Math.ceil(extArea/400), usage:'1 roll per ~400 sq ft', src:extIds, area:'Whole house'},
     {item:'Window/door flashing tape 6"', qty:Math.ceil(openPerim*1.15/75), usage:`${Math.round(openPerim)} LF of rough openings`, src:extIds, area:'Whole house'},
     {item:'Construction adhesive (case)', qty:Math.max(1,Math.ceil(walls.filter(FRAMED).length/20)), usage:'plates and sheathing', src:extIds, area:'Whole house'},
@@ -1185,7 +1326,7 @@ window.addEventListener('message', function(e){
         id: 'A'+(i+1), name: w.name || ('Wall '+(i+1)), level: level,
         type: (w.type && TYPES[w.type]) ? w.type : 'int',
         a: [+w.a[0]||0, +w.a[1]||0], b: [+w.b[0]||0, +w.b[1]||0],
-        h: level === 'L' ? E.LOW_TOP : 9.1, base: level === 'L' ? 0 : E.MAIN,
+        h: (+w.h > 6 && +w.h < 30) ? +w.h : (level === 'L' ? E.LOW_TOP : 9.1), base: level === 'L' ? 0 : E.MAIN,
         ops: []
       };
     });
@@ -1195,7 +1336,7 @@ window.addEventListener('message', function(e){
       ww.ops.push({
         at: +o.at||0, w: +o.w||3,
         h: +o.h || (isWin?5:6.67), head: +o.head || (isWin?6.5:6.67),
-        kind: isWin ? 'win' : undefined
+        kind: isWin ? 'win' : (o.kind === 'oh' ? 'oh' : undefined)
       });
     });
     var nr = (d.rooms||[]).map(function(r,i){
@@ -1223,6 +1364,9 @@ window.addEventListener('message', function(e){
       };
     });
     walls = nw; rooms = nr; doors = nd;
+    opts.floorSys = (d.floor && typeof d.floor === 'object') ? d.floor : null;
+    opts.roofSys = (d.roof && typeof d.roof === 'object') ? d.roof : null;
+    opts.porchSys = (d.porch && typeof d.porch === 'object') ? d.porch : null;
     selId = selRoom = selDoor = null; hi = new Set(); hiRow = -1;
     save(); refreshAll(); buildFloor(); rebuildPlanMeshes(); if(topView) setTop(true);
     toast('3D model built automatically from the plans.');
