@@ -221,6 +221,7 @@ body.ff-embed .brand,body.ff-embed .plans{display:none}
       <h2>Traced walls</h2>
       <p class="sub" id="wsum"></p>
       <div class="progress" aria-hidden="true"><b id="prog"></b></div>
+      <div class="dact" style="margin:0 0 10px"><button class="btn" id="nextUn">Next unchecked</button><button class="btn" id="onlyUn" aria-pressed="false">Unchecked only</button></div>
       <div id="wlist"></div>
       <div class="dact"><button class="btn" id="resetAll">Reset to AI trace</button></div>
     </section>
@@ -353,6 +354,7 @@ function jobInfo(){ const p=activePlan(); return {job:p.name, site:p.site||'', c
 
 let S = loadActiveData(); let walls=S.walls, rooms=S.rooms, doors=S.doors, opts=S.opts;
 let prices = loadK(PKEY, {}); let ui = loadK(OKEY, {trim:'better', door:'better', gm:25});
+let onlyUn=false, isolate=false;
 let selId=null, selRoom=null, selDoor=null, hi=new Set(), hiRow=-1, level='A';
 const $ = s => document.querySelector(s);
 function save(){ saveK(planDataKey(activeId), {walls,rooms,doors,opts}); if(EMBED) postBomToParent(); }
@@ -460,6 +462,7 @@ function buildWalls(){
   if(!scene) return; clearGroup(wallGroup);
   walls.forEach(w=>{
     if(!visLv(w.level)) return;
+    if(isolate && selId && w.id!==selId) return;
     const sel=isHi(w.id), t=thick(w), g=along(w.a,w.b); g.position.y=wallBase(w);
     if(showFrame && FRAMED(w)) buildStuds(w,g,t,sel);
     else {
@@ -604,7 +607,11 @@ function renderList(){
     ['Main floor: exterior', w=>w.level==='M'&&EXT_TYPES.includes(w.type)],
     ['Main floor: interior and separation', w=>w.level==='M'&&!EXT_TYPES.includes(w.type)],
   ];
-  $('#wlist').innerHTML=groups.map(([g,f])=>{ const ws=vis.filter(f); if(!ws.length) return '';
+  const lst=onlyUn?vis.filter(w=>!w.ok):vis;
+  $('#onlyUn').setAttribute('aria-pressed',onlyUn); $('#onlyUn').classList.toggle('ok',onlyUn);
+  $('#onlyUn').onclick=()=>{ onlyUn=!onlyUn; renderList(); };
+  $('#nextUn').onclick=()=>{ const open=vis.filter(w=>!w.ok); if(!open.length){ toast('Every wall on this view is checked.'); return; } const order=groups.flatMap(([g,f])=>vis.filter(f)); const i=order.findIndex(w=>w.id===selId); const n=order.slice(i+1).concat(order.slice(0,i+1)).find(w=>!w.ok); if(n){ select(n.id); focusAt((n.a[0]+n.b[0])/2,(n.a[1]+n.b[1])/2); } };
+  $('#wlist').innerHTML=(onlyUn&&!lst.length?'<p class="sub">Every wall on this view is checked.</p>':'')+groups.map(([g,f])=>{ const ws=lst.filter(f); if(!ws.length) return '';
     return `<div class="group">${g}</div><div class="wl">`+ws.map(w=>`
       <button class="wrow ${w.id===selId?'sel':''}" data-id="${w.id}">
         <span class="sw" style="background:${TYPES[w.type].css}"></span>
@@ -630,6 +637,7 @@ function renderDetail(){
       <button class="btn ${w.ok?'':'ok'}" id="dOk">${w.ok?'Mark unchecked':'Matches plan'}</button>
       <button class="btn" id="dWin">+ Window</button>
       <button class="btn del" id="dDel">Delete wall</button>
+      <button class="btn" id="dIso" aria-pressed="${isolate}">${isolate?'Show all walls':'Isolate wall'}</button>
       <button class="btn" id="dClose">Close</button>
     </div>`;
   $('#dType').onchange=e=>{ w.type=e.target.value; commit(); };
@@ -638,6 +646,7 @@ function renderDetail(){
   $('#dOk').onclick=()=>{ w.ok=!w.ok; commit(); if(w.ok){ const n=walls.find(x=>!x.ok&&visLv(x.level)); if(n){ select(n.id); focusAt((n.a[0]+n.b[0])/2,(n.a[1]+n.b[1])/2); } else { select(null); toast('Every wall on this view checked.'); } } };
   $('#dWin').onclick=()=>{ w.ops.push({at:len(w)/2,w:3,h:5,head:Math.min(82/12,w.h-0.8),kind:'win'}); commit(); toast('36" × 60" window added at wall centre.'); };
   $('#dDel').onclick=()=>{ walls=walls.filter(x=>x.id!==w.id); selId=null; commit(); toast('Wall deleted.'); };
+  $('#dIso').onclick=()=>{ isolate=!isolate; buildWalls(); renderDetail(); };
   $('#dClose').onclick=()=>clearSel();
 }
 
