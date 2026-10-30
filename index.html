@@ -157,7 +157,11 @@ textarea{width:100%;min-height:130px;background:var(--raised);border:1px solid v
 @keyframes sp{to{transform:rotate(360deg)}}
 
 @media (max-width: 860px){
-  .app{grid-template-columns:1fr;grid-template-rows:auto 56vh 1fr}
+  .app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto 56vh 1fr}
+  .app>*{min-width:0}
+  header{flex-wrap:wrap;row-gap:6px}
+  header .plans{min-width:0;max-width:100%}
+  .stage,aside{min-width:0;max-width:100%}
   aside{border-left:0;border-top:1px solid var(--border-soft)}
   .legend{display:none}
   .job{display:none}
