@@ -334,10 +334,13 @@ let activeId = loadK(ACTIVE_KEY, null);
 if(!activeId || !plans.some(p=>p.id===activeId)) activeId = plans[0].id;
 const EMBED_PARAMS = new URLSearchParams(location.search);
 const EMBED = EMBED_PARAMS.get('embed')==='1';
+const EMBED_READONLY = EMBED_PARAMS.get('readonly')==='1';
 const EMBED_PROJECT = EMBED_PARAMS.get('project')||'';
 const EMBED_NAME = EMBED_PARAMS.get('name')||'';
-if(EMBED && EMBED_PROJECT){
-  const pid = 'scope-'+EMBED_PROJECT;
+const EMBED_PLAN_ID = EMBED_PROJECT ? 'scope-'+EMBED_PROJECT : '';
+const EMBED_MISSING = !!(EMBED && EMBED_READONLY && EMBED_PROJECT && !plans.some(p=>p.id===EMBED_PLAN_ID));
+if(EMBED && EMBED_PROJECT && !EMBED_MISSING){
+  const pid = EMBED_PLAN_ID;
   if(!plans.some(p=>p.id===pid)){
     plans.push({id:pid, name:EMBED_NAME||'Forge Scope job', site:'', customer:'', rep:'Rob Flagg'});
     saveK(PLANS_KEY, plans);
@@ -357,16 +360,17 @@ let prices = loadK(PKEY, {}); let ui = loadK(OKEY, {trim:'better', door:'better'
 let onlyUn=false, isolate=false;
 let selId=null, selRoom=null, selDoor=null, hi=new Set(), hiRow=-1, level='A';
 const $ = s => document.querySelector(s);
-function save(){ saveK(planDataKey(activeId), {walls,rooms,doors,opts}); if(EMBED) postBomToParent(); }
+function save(){ if(EMBED_MISSING) return; saveK(planDataKey(activeId), {walls,rooms,doors,opts}); if(EMBED) postBomToParent(); }
 function postBomToParent(){
   try{
+    if(EMBED_MISSING){ parent.postMessage({type:'forgeFrame:modelMissing', project:EMBED_PROJECT, jobName:EMBED_NAME}, '*'); return; }
     const rows=bomData();
     parent.postMessage({type:'forgeFrame:bomUpdate', project:EMBED_PROJECT, rows, walls, rooms, doors, jobName:(jobInfo()||{}).job}, '*');
   }catch(e){}
 }
 const len = w => Math.hypot(w.b[0]-w.a[0], w.b[1]-w.a[1]);
 const fmtFt = f => { const t=Math.round(f*12); return `${Math.floor(t/12)}'-${t%12}"`; };
-const esc = s => String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc = s => String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); if(EMBED_MISSING){ const app=document.querySelector('.app'); if(app) app.style.display='none'; const empty=document.createElement('div'); empty.setAttribute('role','status'); empty.textContent='No saved 3D model is linked to '+(EMBED_NAME||'this project')+' yet. The project documents and saved BOM are still available in the Forge workspace.'; empty.style.cssText='position:fixed;inset:0;display:grid;place-content:center;padding:28px;text-align:center;background:#111;color:#e5e7eb;font:600 14px/1.6 Inter,system-ui,sans-serif'; document.body.appendChild(empty); }
 function opLabel(o){ return `${{win:'Window',door:'Door',oh:'Overhead door'}[o.kind]||'Opening'} ${Math.round(o.w*12)}" × ${Math.round(o.h*12)}"`; }
 function hdrFor(o,w){ if(o.hdr) return o.hdr; if(o.kind==='oh') return '2-2x10'; if(w && w.type==='int') return 'flat'; if(o.w>8) return 'supplier'; return '2-2x8'; }
 const isEng = h => h==='supplier' || h.startsWith('LVL');
@@ -1323,8 +1327,8 @@ $('#photoLowerBtn').onclick=()=>$('#photoLowerInput').click();
 $('#photoMainInput').onchange=e=>uploadPhoto('M', e.target.files[0]);
 $('#photoLowerInput').onchange=e=>uploadPhoto('L', e.target.files[0]);
 $('#photoWidth').onchange=e=>{ const ph=loadPlanPhoto(); ph.widthFt=parseFloat(e.target.value)||50; savePlanPhoto(ph); rebuildPlanMeshes(); };
-renderList(); renderRooms(); renderDoors(); renderBom(); init3d();
-if(EMBED){ try{ parent.postMessage({type:'forgeFrame:ready', project:EMBED_PROJECT}, '*'); }catch(e){} postBomToParent(); }
+if(!EMBED_MISSING){ renderList(); renderRooms(); renderDoors(); renderBom(); init3d(); }
+if(EMBED){ try{ parent.postMessage({type:EMBED_MISSING?'forgeFrame:modelMissing':'forgeFrame:ready', project:EMBED_PROJECT, jobName:EMBED_NAME}, '*'); }catch(e){} if(!EMBED_MISSING) postBomToParent(); }
 
 /* ---------- Automatic AI trace (from Forge Scope) ---------- */
 window.addEventListener('message', function(e){
