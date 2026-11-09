@@ -360,7 +360,7 @@ let prices = loadK(PKEY, {}); let ui = loadK(OKEY, {trim:'better', door:'better'
 let onlyUn=false, isolate=false;
 let selId=null, selRoom=null, selDoor=null, hi=new Set(), hiRow=-1, level='A';
 const $ = s => document.querySelector(s);
-function save(){ if(EMBED_MISSING) return; saveK(planDataKey(activeId), {walls,rooms,doors,opts}); if(EMBED) postBomToParent(); }
+function save(){ if(EMBED_MISSING || EMBED_READONLY) return; saveK(planDataKey(activeId), {walls,rooms,doors,opts}); if(EMBED) postBomToParent(); }
 function postBomToParent(){
   try{
     if(EMBED_MISSING){ parent.postMessage({type:'forgeFrame:modelMissing', project:EMBED_PROJECT, jobName:EMBED_NAME}, '*'); return; }
